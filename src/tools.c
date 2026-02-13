@@ -2,10 +2,6 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef ENABLE_PACKET_COMPRESSION
-  #include <zlib.h>
-#endif
-
 #ifdef ESP_PLATFORM
   #include "lwip/sockets.h"
   #include "lwip/netdb.h"
@@ -26,6 +22,10 @@
 #endif
 
 #include "globals.h"
+
+#ifdef ENABLE_PACKET_COMPRESSION
+  #include <zlib.h>
+#endif
 #include "varnum.h"
 #include "procedures.h"
 #include "tools.h"
