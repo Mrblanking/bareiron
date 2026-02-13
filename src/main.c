@@ -3,6 +3,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <math.h>
 
 #ifndef CLOCK_REALTIME
 #define CLOCK_REALTIME 0
@@ -245,13 +246,31 @@ void handlePacket (int client_fd, int length, int packet_id, int state) {
         // Whether to broadcast player position to other players
         uint8_t should_broadcast = true;
 
+        // Check if this is a position update (not just rotation)
+        if (packet_id != 0x1F && should_broadcast) {
+          // Only broadcast if player has moved more than 0.49 blocks
+          double dx = x - player->last_broadcast_x;
+          double dy = y - player->last_broadcast_y;
+          double dz = z - player->last_broadcast_z;
+          double distance = sqrt(dx*dx + dy*dy + dz*dz);
+          
+          if (distance <= 0.49) {
+            should_broadcast = false;
+          } else {
+            // Update last broadcast position
+            player->last_broadcast_x = x;
+            player->last_broadcast_y = y;
+            player->last_broadcast_z = z;
+          }
+        }
+
         #ifndef BROADCAST_ALL_MOVEMENT
           // If applicable, tie movement updates to the tickrate by using
           // a flag that gets reset on every tick. It might sound better
           // to just make the tick handler broadcast position updates, but
           // then we lose precision. While position is stored using integers,
           // here the client gives us doubles and floats directly.
-          should_broadcast = !(player->flags & 0x40);
+          should_broadcast = should_broadcast && !(player->flags & 0x40);
           if (should_broadcast) player->flags |= 0x40;
         #endif
 

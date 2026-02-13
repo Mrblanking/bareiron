@@ -15,9 +15,6 @@ static inline int div_floor (int a, int b) {
 extern uint64_t total_bytes_received;
 ssize_t recv_all (int client_fd, void *buf, size_t n, uint8_t require_first);
 ssize_t send_all (int client_fd, const void *buf, ssize_t len);
-void discard_all (int client_fd, size_t remaining, uint8_t require_first);
-
-ssize_t writeByte (int client_fd, uint8_t byte);
 ssize_t writeUint16 (int client_fd, uint16_t num);
 ssize_t writeUint32 (int client_fd, uint32_t num);
 ssize_t writeUint64 (int client_fd, uint64_t num);
@@ -39,6 +36,15 @@ void readStringN (int client_fd, uint32_t max_length);
 
 uint32_t fast_rand ();
 uint64_t splitmix64 (uint64_t state);
+
+#ifdef ENABLE_PACKET_COMPRESSION
+  // Compression support functions
+  ssize_t compressData (const uint8_t *input, size_t input_len, uint8_t *output, size_t output_len);
+  
+  // Send a packet with compression
+  // packet_data should include [packet_id][data...], not the length
+  ssize_t sendCompressedPacket (int client_fd, const uint8_t *packet_data, size_t packet_len);
+#endif
 
 #ifdef ESP_PLATFORM
   #include "esp_timer.h"

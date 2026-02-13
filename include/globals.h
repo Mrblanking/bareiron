@@ -124,6 +124,17 @@
 // on low tickrates, as that might drastically decrease the update rate.
 #define SCALE_MOVEMENT_UPDATES_TO_PLAYER_COUNT
 
+// If defined, enables packet compression for all outgoing packets
+// Reduces bandwidth usage at the cost of CPU time. Requires zlib.
+#define ENABLE_PACKET_COMPRESSION
+
+// Compression threshold: packets larger than this size will be compressed
+// Smaller packets may not benefit from compression due to zlib overhead
+#define COMPRESSION_THRESHOLD 256
+
+// Size of packet buffer for compression
+#define PACKET_BUFFER_SIZE 65536
+
 // If defined, calculates fluid flow when blocks are updated near fluids
 // Somewhat computationally expensive and potentially unstable
 #define DO_FLUID_FLOW
@@ -206,6 +217,10 @@ typedef struct {
   short z;
   short visited_x[VISITED_HISTORY];
   short visited_z[VISITED_HISTORY];
+  // Last position broadcast to other clients (for throttling)
+  double last_broadcast_x;
+  double last_broadcast_y;
+  double last_broadcast_z;
   #ifdef SCALE_MOVEMENT_UPDATES_TO_PLAYER_COUNT
     uint16_t packets_since_update;
   #endif

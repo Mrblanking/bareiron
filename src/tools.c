@@ -2,6 +2,10 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef ENABLE_PACKET_COMPRESSION
+  #include <zlib.h>
+#endif
+
 #ifdef ESP_PLATFORM
   #include "lwip/sockets.h"
   #include "lwip/netdb.h"
@@ -291,5 +295,112 @@ int64_t get_program_time () {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (int64_t)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000LL;
+}
+#endif
+#ifdef ENABLE_PACKET_COMPRESSION
+// Compress data using deflate/zlib compression
+// Returns the compressed length on success, -1 on failure
+ssize_t compressData (const uint8_t *input, size_t input_len, uint8_t *output, size_t output_len) {
+  z_stream stream;
+  stream.zalloc = Z_NULL;
+  stream.zfree = Z_NULL;
+  stream.opaque = Z_NULL;
+  
+  // Initialize deflate compression
+  if (deflateInit(&stream, Z_DEFAULT_COMPRESSION) != Z_OK) {
+    return -1;
+  }
+  
+  stream.avail_in = input_len;
+  stream.next_in = (uint8_t *)input;
+  stream.avail_out = output_len;
+  stream.next_out = output;
+  
+  int ret = deflate(&stream, Z_FINISH);
+  size_t compressed_size = stream.total_out;
+  deflateEnd(&stream);
+  
+  if (ret != Z_STREAM_END) {
+    return -1;
+  }
+  
+  return compressed_size;
+}
+
+// Send a packet with optional compression
+// packet_data should include [packet_id][data...], not the length varint
+ssize_t sendCompressedPacket (int client_fd, const uint8_t *packet_data, size_t packet_len) {
+  uint8_t frame_buffer[PACKET_BUFFER_SIZE];
+  size_t frame_pos = 0;
+  
+  if (packet_len >= COMPRESSION_THRESHOLD) {
+    // Try to compress
+    uint8_t compressed_data[PACKET_BUFFER_SIZE];
+    ssize_t compressed_size = compressData(packet_data, packet_len, compressed_data, PACKET_BUFFER_SIZE);
+    
+    if (compressed_size > 0 && compressed_size < (ssize_t)packet_len) {
+      // Compression helped, use it
+      // Format: [frame_length][data_length][compressed_data]
+      uint8_t temp[10];
+      int idx = 0;
+      uint32_t frame_length = sizeVarInt(packet_len) + compressed_size;
+      uint32_t val = frame_length;
+      
+      while (true) {
+        if ((val & ~SEGMENT_BITS) == 0) {
+          temp[idx++] = val;
+          break;
+        }
+        temp[idx++] = (val & SEGMENT_BITS) | CONTINUE_BIT;
+        val >>= 7;
+      }
+      memcpy(frame_buffer + frame_pos, temp, idx);
+      frame_pos += idx;
+      
+      // Write original data length
+      val = packet_len;
+      idx = 0;
+      while (true) {
+        if ((val & ~SEGMENT_BITS) == 0) {
+          temp[idx++] = val;
+          break;
+        }
+        temp[idx++] = (val & SEGMENT_BITS) | CONTINUE_BIT;
+        val >>= 7;
+      }
+      memcpy(frame_buffer + frame_pos, temp, idx);
+      frame_pos += idx;
+      
+      // Write compressed data
+      memcpy(frame_buffer + frame_pos, compressed_data, compressed_size);
+      frame_pos += compressed_size;
+      
+      return send_all(client_fd, frame_buffer, frame_pos);
+    }
+  }
+  
+  // Packet is too small or compression didn't help, send uncompressed
+  // Format: [frame_length][data_length=0][packet_data]
+  uint8_t temp[10];
+  int idx = 0;
+  uint32_t frame_length = 1 + packet_len;  // 1 byte for data_length (0)
+  uint32_t val = frame_length;
+  
+  while (true) {
+    if ((val & ~SEGMENT_BITS) == 0) {
+      temp[idx++] = val;
+      break;
+    }
+    temp[idx++] = (val & SEGMENT_BITS) | CONTINUE_BIT;
+    val >>= 7;
+  }
+  memcpy(frame_buffer, temp, idx);
+  frame_pos = idx;
+  
+  frame_buffer[frame_pos++] = 0;  // data_length = 0 (no compression)
+  memcpy(frame_buffer + frame_pos, packet_data, packet_len);
+  frame_pos += packet_len;
+  
+  return send_all(client_fd, frame_buffer, frame_pos);
 }
 #endif
